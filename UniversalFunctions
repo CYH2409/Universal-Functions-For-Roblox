@@ -1,0 +1,378 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+
+local UniversalFunctions = require(script.Parent.UniversalFunctions)
+local Animations = require(ReplicatedStorage.Source.Modules.Animations)
+
+local Functions = {
+	["StopAllAnimation"] = function(Character,AnimName)
+		if AnimName then
+			for _, anim in pairs(Character:FindFirstChildWhichIsA("Humanoid"):GetPlayingAnimationTracks()) do
+				if anim.Name == AnimName then
+					anim:Stop()
+				end
+			end
+		else
+			for _, anim in pairs(Character:FindFirstChildWhichIsA("Humanoid"):GetPlayingAnimationTracks()) do
+				anim:Stop()
+			end
+		end
+	end,
+	
+	["LoadAnimation"] = function(Model, AnimationList, Playing, AdjustSpeed)
+
+		local Speed = AdjustSpeed or 1
+		local Animator = Model:FindFirstChildWhichIsA("Humanoid") or Model:FindFirstChildWhichIsA("AnimationController")
+
+		local AnimList, AnimSkin, AnimName = AnimationList["AnimList"], AnimationList["AnimSkin"] or "Default", AnimationList["AnimName"]
+		local List = Animations[AnimList][AnimSkin]
+
+		if not Animator or not List then return end
+		local AnimationObject = List[AnimName]
+
+		if AnimationObject then
+			local Animation = Instance.new("Animation")
+			Animation.Name = AnimName
+			Animation.AnimationId = "rbxassetid://"..AnimationObject
+			local animTrack = Animator:LoadAnimation(Animation)
+
+			if Playing and Playing == true then
+				animTrack:Play()
+			end
+			animTrack:AdjustSpeed(Speed)
+
+			local Connection
+			Connection = animTrack.Ended:Connect(function()
+				Connection:Disconnect()
+				animTrack:Destroy()
+			end)
+
+			--repeat wait() until animTrack.IsPlaying or animTrack.TimePosition > 0
+
+			return animTrack
+		end
+	end,
+	
+	["CreateAnimationEvent"] = function(Animation,EventName , Function)
+		Animation:GetMarkerReachedSignal(EventName):Connect(Function)
+	end,
+	
+	["CheckCooldown"] = function(Character, SkillName)
+		local CooldownFolder = Character:FindFirstChild("Cooldowns")
+
+		if not CooldownFolder then 
+			return false
+		else
+			if CooldownFolder:FindFirstChild(SkillName) then
+				return false
+			else
+				return true
+			end
+		end
+	end,
+	
+	["CreateSpeed"] = function(Character, Speed)
+		local Humanoid = Character:FindFirstChild("Humanoid")
+		local speedValue
+		local speed = Speed * Character.Values.SpeedBuff.Value
+		local Device
+
+		if game.ServerScriptService:FindFirstChild("Source") then
+			Device = "Server"
+		else
+			Device = "Client"
+		end
+
+		local function SpeedTable()
+			local Table = {}
+			local cancel = false
+			local Sp = 0
+
+			for i,v in pairs(Character.Values:GetChildren()) do
+				if v.Name == "SET-SPEED" then
+					table.insert(Table,v)
+					Sp += v.Value
+					if v.Value == 0 then
+						cancel = true
+					end
+				end
+			end
+
+			Sp = Sp / #Table
+
+			if cancel == true then
+				Sp = 0
+			end
+
+			return Sp
+		end
+
+		local Attribute = {
+			["Server"] = 0;
+			["Client"] = 0;
+		}
+
+		for i,v in pairs(Character.Values:GetChildren()) do
+			if v.Name == "SET-SPEED" then
+				if v:GetAttribute("Device") == Device then
+					Attribute[Device] += 1
+				end
+			end
+		end
+
+		local Powered = false
+
+		if Attribute["Server"] == 0 or Attribute["Client"] == 0 then
+			Powered = true
+		end
+
+		if Powered == true then
+			speedValue = Instance.new("NumberValue",Character.Values)
+			speedValue.Name = "SET-SPEED"
+			speedValue.Value = speed
+			speedValue:SetAttribute("Device",Device)
+
+			Humanoid.WalkSpeed = SpeedTable()
+
+			local Runservice
+			Runservice = RunService.Heartbeat:Connect(function()
+				Humanoid.WalkSpeed = SpeedTable()
+				if not Character.Values:FindFirstChild("SET-SPEED") then
+					Runservice:Disconnect()
+					Humanoid.WalkSpeed = 25 * Character.Values.SpeedBuff.Value
+				end
+			end)
+
+		else
+
+			speedValue = Instance.new("NumberValue",Character.Values)
+			speedValue.Name = "SET-SPEED"
+			speedValue.Value = speed
+			speedValue:SetAttribute("Device",Device)
+
+			Humanoid.WalkSpeed = SpeedTable()
+
+		end
+
+		return speedValue
+	end,
+	
+	["CreateJump"] = function(Character, Jump)
+		local Humanoid = Character:FindFirstChild("Humanoid")
+
+		local JumpValue = Instance.new("StringValue",Character.Values)
+		JumpValue.Name = "SET-JUMP"
+
+		spawn(function()
+			Humanoid.UseJumpPower = true
+			Humanoid.JumpPower = Jump * Character.Values.JumpBuff.Value
+			repeat
+				wait()
+				Humanoid.JumpPower = Jump * Character.Values.JumpBuff.Value
+			until not Character.Values:FindFirstChild(JumpValue.Name)
+			Humanoid.JumpPower = 50 * Character.Values.JumpBuff.Value
+		end)
+
+		return JumpValue
+	end,
+	
+	["Transparent"] = function(Character,Number)
+		local ValuesFolder = Character:FindFirstChild("Values")
+		local TransValue = Instance.new("StringValue",ValuesFolder)
+		TransValue.Name = "SET-Transparent"
+
+		spawn(function()
+			local ParticleTrans = {}
+
+			for i,v in pairs(Character:GetDescendants()) do
+				if v:IsA("Part") or v:IsA("MeshPart") or v:IsA("Decal") then
+					if v:GetAttribute("BodyPart") or v:IsA("Decal") then
+						v.Transparency = Number
+					end
+				elseif v:IsA("PointLight") or v:IsA("SpotLight") or v:IsA("SurfaceLight") then
+					v.Enabled = false
+				end
+			end
+			for i,v in pairs(Character:GetChildren()) do
+				if v:IsA("Accessory") then
+					v["Handle"].Transparency = Number
+				end
+			end
+			for _,Particle in pairs(Character:GetDescendants()) do
+				if Particle:IsA("ParticleEmitter") or Particle:IsA("Trail") then
+					local Clone = Particle:Clone()
+					Clone.Parent = workspace.Effects
+					ParticleTrans[Particle] = {Clone,Particle.Parent}
+					Particle:Destroy()
+				end
+			end
+
+			spawn(function()
+				repeat wait() until not ValuesFolder:FindFirstChild("SET-Transparent")
+
+				for i,v in pairs(Character:GetDescendants()) do
+					if v:IsA("Part") or v:IsA("MeshPart") or v:IsA("Decal") then
+						if v:GetAttribute("BodyPart") or v:IsA("Decal") then
+							v.Transparency = 0
+						end
+					elseif v:IsA("PointLight") or v:IsA("SpotLight") or v:IsA("SurfaceLight") then
+						v.Enabled = true
+					end
+				end
+				for i,v in pairs(Character:GetChildren()) do
+					if v:IsA("Accessory") then
+						v["Handle"].Transparency = 0
+					end
+				end
+				for Particle,Table in pairs(ParticleTrans) do
+					Table[1].Parent = Table[2]
+				end
+
+			end)
+
+		end)
+
+		return TransValue
+	end,
+	
+	["Checks"] = function(Character, Info)
+		local Checks
+		if Info["Checks"] then
+			Checks = Info["Checks"]
+		else
+			Checks = {CheckGlobalStunned = true ,CheckStunned = true ,CheckDisabled = true ,CheckSummoned = false ,CheckUsingMove = true, CheckRagdoll = true, CheckTimestop = true, CheckAbility = false};
+		end
+
+		if Checks then
+
+			if Checks["CheckGlobalStunned"] == true then
+				if Character["Checks"]["GStun"].Value == true then
+					return false
+				end
+			end
+
+			if Checks["CheckStunned"] == true then
+				if Character["Checks"]["Stun"].Value == true then
+					return false
+				end
+			end
+
+			if Checks["CheckDisabled"] == true then
+				if CollectionService:HasTag(Character,"Disable") then
+					return false
+				end
+			end
+
+			if Checks["CheckSummoned"] == true then
+				if Character["Checks"]["Summon"].Value == false then
+					return false
+				end
+			end
+
+			if Checks["CheckUsingMove"] == true then
+				if CollectionService:HasTag(Character,"UsingMove") then
+					return false
+				end
+			end
+
+			if Checks["CheckRagdoll"] == true then
+				if CollectionService:HasTag(Character,"Ragdoll") or Character["Checks"]["Ragdoll"].Value == true then
+					return false
+				end
+			end
+
+			if Checks["CheckTimestop"] == true then
+				if Character["Checks"]["Timestop"].Value == true then
+					return false
+				end
+			end
+
+			if Checks["CheckAbility"] == true then
+				if CollectionService:HasTag(Character,"Ability") then
+					return false
+				end
+			end
+
+		end
+
+		return true
+	end,
+	
+	["Overlaps"] = function(Position, Size , Params, Type)
+		local Overl = OverlapParams.new()
+		local params = {workspace}
+
+		if type(Params) == "table" then
+			for i,v in pairs(Params) do
+				table.insert(params,v)
+			end
+		end
+
+		Overl.FilterDescendantsInstances = params
+
+		local Overlap
+		if Type == "GetPartsInPart" then
+			Overlap = workspace:GetPartsInPart(Position, Overl)
+		else
+			Overlap = workspace:GetPartBoundsInBox(Position, Size, Overl)
+		end
+
+		return Overlap
+	end,
+	
+	["Raycast"] = function(Position, LookVector, Params, FilterType)
+		local Rayc = RaycastParams.new()
+		local params = {workspace.Effects}
+
+		if FilterType then
+			Rayc.FilterType = FilterType
+			params = {}
+		end
+
+		if type(Params) == "table" then
+			for i,v in pairs(Params) do
+				table.insert(params,v)
+			end
+		end
+
+		Rayc.FilterDescendantsInstances = params
+		local Raycast = workspace:Raycast(Position, LookVector, Rayc)
+
+		return Raycast
+	end,
+	
+	["EmitParticle"] = function(Parent, Mutiplier, EmitCount)
+		for _, object in pairs(Parent:GetDescendants()) do
+			spawn(function()
+				if object:GetAttribute("EmitDelay") then
+					task.wait(object:GetAttribute("EmitDelay"))
+				end
+
+				if object:IsA("ParticleEmitter") then
+
+					if object:GetAttribute("EmitDuration") and object:GetAttribute("EmitDuration") > 0 then
+						object.Enabled = true
+						task.delay(object:GetAttribute("EmitDuration"),function()
+							object.Enabled = false
+						end)
+					end
+
+					local amount = EmitCount or object:GetAttribute("EmitCount")
+					if EmitCount and EmitCount == 0 then
+						amount = object:GetAttribute("EmitCount")
+					end
+					local mutiplier = Mutiplier or 1
+
+					object:Emit(amount * mutiplier)
+
+				end
+
+			end)
+		end
+	end,
+}
+
+return Functions
